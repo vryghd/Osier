@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <!-- ─── App Identity ──────────────────────────────────────────── -->
+    <key>CFBundleName</key>
+    <string>Osier</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>Osier</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+
+    <key>CFBundlePackageType</key>
+    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+    <!-- ─── Minimum OS ────────────────────────────────────────────── -->
+    <key>MinimumOSVersion</key>
+    <string>17.0</string>
+
+    <!-- ─── Photo Library ────────────────────────────────────────── -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Osier needs photo library access to manage, sort, and organize your photos and albums on-device.</string>
+
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Osier needs permission to create new albums and save media directly to your photo library.</string>
+
+    <!-- ─── Calendar & Reminders ─────────────────────────────────── -->
+    <key>NSCalendarsUsageDescription</key>
+    <string>Osier needs calendar access to read your schedule and create events on your behalf.</string>
+
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Osier needs full calendar access to create, edit, and delete events and read your full schedule.</string>
+
+    <key>NSRemindersUsageDescription</key>
+    <string>Osier needs reminders access to create tasks and manage your to-do lists.</string>
+
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Osier needs full reminders access to create, edit, complete, and snooze your reminders.</string>
+
+    <!-- ─── File & Document Access ───────────────────────────────── -->
+    <key>UISupportsDocumentBrowser</key>
+    <true/>
+
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+
+    <key>UIFileSharingEnabled</key>
+    <true/>
+
+    <!-- ─── External Drive / File Provider ──────────────────────── -->
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Osier accesses your Documents folder to manage and organize your files.</string>
+
+    <!-- ─── Background Tasks ─────────────────────────────────────── -->
+    <!-- Must match identifiers passed to BGTaskScheduler.shared.register() -->
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.osier.backup.icloud</string>
+        <string>com.osier.backup.external</string>
+    </array>
+
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>processing</string>
+    </array>
+
+    <!-- ─── Siri / AppIntents ────────────────────────────────────── -->
+    <key>NSSiriUsageDescription</key>
+    <string>Osier uses Siri and Shortcuts so you can trigger agent commands with your voice.</string>
+
+    <!-- ─── Network (for BYOK REST calls) ───────────────────────── -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <!-- Allow HTTPS to OpenAI and Anthropic only -->
+        <key>NSAllowsArbitraryLoads</key>
+        <false/>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>api.openai.com</key>
+            <dict>
+                <key>NSExceptionRequiresForwardSecrecy</key>
+                <false/>
+            </dict>
+            <key>api.anthropic.com</key>
+            <dict>
+                <key>NSExceptionRequiresForwardSecrecy</key>
+                <false/>
+            </dict>
+        </dict>
+    </dict>
+
+    <!-- ─── UI / Scene ───────────────────────────────────────────── -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>Default Configuration</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
+
+    <key>UILaunchScreen</key>
+    <dict/>
+
+    <!-- ─── Supported Interface Orientations ────────────────────── -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+</dict>
+</plist>
