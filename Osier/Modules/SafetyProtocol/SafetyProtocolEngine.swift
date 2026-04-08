@@ -158,39 +158,119 @@ final class SafetyProtocolEngine: ObservableObject {
         print("[SafetyProtocol] 🗑 Trashed: \(src) → \(resultURL?.path ?? "system trash")")
     }
 
-    // MARK: - Photo Actions
+    // MARK: - Photo Actions (Module C: GalleryAgent)
 
     private func executePhotoAction(_ action: ActionItem) async throws {
-        // PhotoKit mutations must happen inside a performChanges block
-        try await PHPhotoLibrary.shared().performChanges {
-            switch action.type {
-            case .createAlbum:
-                let request = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(
-                    withTitle: action.metadata["albumName"] ?? "New Album"
-                )
-                _ = request
-            case .movePhoto:
-                // Moving requires fetching the asset and adding to collection
-                // Full implementation in Module C (GalleryAgent)
-                print("[SafetyProtocol] Photo move delegated to GalleryAgent")
-            default:
-                break
+        let meta   = action.metadata
+        let act    = meta["action"] ?? ""
+        let albums = AlbumOperations.shared
+        let photos = PhotoKitManager.shared
+
+        switch act {
+
+        case "create":
+            // Create album only
+            let name = meta["albumName"] ?? "New Album"
+            _ = try await albums.findOrCreateAlbum(named: name)
+
+        case "addToAlbum":
+            let ids  = (meta["assetIDs"] ?? "").components(separatedBy: ",").filter { !$0.isEmpty }
+            let name = meta["albumName"] ?? "New Album"
+            let assets = photos.fetchAssets(withIdentifiers: ids)
+            let album  = try await albums.findOrCreateAlbum(named: name)
+            try await albums.batchAddAssets(assets, to: album)
+
+        case "moveAlbum":
+            let ids  = (meta["assetIDs"] ?? "").components(separatedBy: ",").filter { !$0.isEmpty }
+            let from = meta["fromAlbum"] ?? ""
+            let to   = meta["toAlbum"]   ?? ""
+            let assets = photos.fetchAssets(withIdentifiers: ids)
+            guard let srcAlbum = albums.findAlbum(named: from) else {
+                throw SafetyError.assetNotFound
             }
+            let dstAlbum = try await albums.findOrCreateAlbum(named: to)
+            try await albums.moveAssets(assets, from: srcAlbum, to: dstAlbum)
+
+        case "renameAlbum":
+            let current = meta["currentName"] ?? ""
+            let newName = meta["newName"]     ?? ""
+            guard let album = albums.findAlbum(named: current) else {
+                throw SafetyError.assetNotFound
+            }
+            try await albums.renameAlbum(album, to: newName)
+
+        case "deleteAlbum":
+            let name = meta["albumName"] ?? ""
+            guard let album = albums.findAlbum(named: name) else { return }
+            try await albums.deleteAlbum(album)
+
+        case "sortIntoAlbum":
+            let ids  = (meta["assetIDs"] ?? "").components(separatedBy: ",").filter { !$0.isEmpty }
+            let name = meta["albumName"] ?? "Sorted"
+            let assets = photos.fetchAssets(withIdentifiers: ids)
+            let album  = try await albums.findOrCreateAlbum(named: name)
+            try await albums.batchAddAssets(assets, to: album)
+
+        case "groupByDate":
+            let ids      = (meta["assetIDs"] ?? "").components(separatedBy: ",").filter { !$0.isEmpty }
+            let strategy = meta["strategy"] == "year"
+                ? MetadataGroupingStrategy.byYear
+                : MetadataGroupingStrategy.byMonth
+            let assets  = photos.fetchAssets(withIdentifiers: ids)
+            let grouped = MetadataEngine.shared.group(assets: assets, by: strategy)
+            for (label, groupAssets) in grouped {
+                let album = try await albums.findOrCreateAlbum(named: label)
+                try await albums.batchAddAssets(groupAssets, to: album)
+            }
+
+        case "groupByLocation":
+            let ids     = (meta["assetIDs"] ?? "").components(separatedBy: ",").filter { !$0.isEmpty }
+            let assets  = photos.fetchAssets(withIdentifiers: ids)
+            let grouped = MetadataEngine.shared.group(assets: assets, by: .byRoughLocation)
+            for (label, groupAssets) in grouped {
+                let album = try await albums.findOrCreateAlbum(named: label)
+                try await albums.batchAddAssets(groupAssets, to: album)
+            }
+
+        default:
+            print("[SafetyProtocol] ⚠️ Unknown photo action: \(act)")
         }
     }
 
     /// Routes a photo to iOS "Recently Deleted" — never permanently removed.
     private func trashPhoto(_ action: ActionItem) async throws {
-        guard let assetID = action.sourcePath else { throw SafetyError.missingPath }
+        let meta    = action.metadata
+        let photos  = PhotoKitManager.shared
+        let act     = meta["action"] ?? "trash"
 
-        let result = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil)
-        guard let asset = result.firstObject else { throw SafetyError.assetNotFound }
+        switch act {
 
-        try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+        case "trashByCoordinate":
+            guard let latStr    = meta["latitude"],
+                  let lngStr    = meta["longitude"],
+                  let radStr    = meta["radiusMeters"],
+                  let lat       = Double(latStr),
+                  let lng       = Double(lngStr),
+                  let radius    = Double(radStr) else {
+                throw SafetyError.missingPath
+            }
+            var candidates = photos.fetchAllAssets()
+            if let startStr = meta["startDate"], let endStr = meta["endDate"],
+               let start = ISO8601DateFormatter().date(from: startStr),
+               let end   = ISO8601DateFormatter().date(from: endStr) {
+                candidates = MetadataEngine.shared.filterByDateRange(
+                    assets: candidates, from: start, to: end)
+            }
+            let targets = MetadataEngine.shared.filterByCoordinate(
+                assets: candidates, latitude: lat, longitude: lng, radiusMeters: radius)
+            try await photos.trashAssets(targets)
+
+        default:
+            // Single asset trash — assetID is in sourcePath or metadata
+            let assetID = action.sourcePath ?? meta["assetID"] ?? ""
+            guard !assetID.isEmpty else { throw SafetyError.missingPath }
+            try await photos.trashAssets(withIdentifiers: [assetID])
         }
-        // Note: iOS routes this to "Recently Deleted" automatically — 30-day window preserved.
-        print("[SafetyProtocol] 🗑 Photo routed to Recently Deleted: \(assetID)")
     }
 
     // MARK: - Vault Actions (Module B)
