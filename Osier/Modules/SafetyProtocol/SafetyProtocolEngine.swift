@@ -103,15 +103,13 @@ final class SafetyProtocolEngine: ObservableObject {
             try await trashPhoto(action)
 
         case .createNote, .editNote:
-            // Module B handles note writing — stubbed here for Module D routing
-            print("[SafetyProtocol] Note action delegated to VaultAgent: \(action.description)")
+            try await executeVaultAction(action)
 
         case .createEvent, .snoozeReminder:
-            // Module B handles EventKit — stubbed here
-            print("[SafetyProtocol] Calendar action delegated to VaultAgent: \(action.description)")
+            try await executeEventAction(action)
 
         case .backupVault:
-            print("[SafetyProtocol] Backup action delegated to FileManager: \(action.description)")
+            print("[SafetyProtocol] Backup action delegated to BackupScheduler: \(action.description)")
         }
     }
 
@@ -193,6 +191,152 @@ final class SafetyProtocolEngine: ObservableObject {
         }
         // Note: iOS routes this to "Recently Deleted" automatically — 30-day window preserved.
         print("[SafetyProtocol] 🗑 Photo routed to Recently Deleted: \(assetID)")
+    }
+
+    // MARK: - Vault Actions (Module B)
+
+    private func executeVaultAction(_ action: ActionItem) async throws {
+        let meta     = action.metadata
+        let target   = meta["target"]
+        let vaultAct = meta["action"] ?? "create"
+        let vault    = meta["vault"] ?? ""
+        let filename = meta["filename"] ?? ""
+        let content  = meta["content"] ?? ""
+        let subpath  = meta["subpath"]
+        let mode     = meta["mode"] ?? "create"
+
+        // Apple Notes staging path
+        if target == "appleNotes" {
+            let noteTitle = meta["noteTitle"] ?? filename
+            if vaultAct == "append" {
+                _ = try NoteStagingEngine.appendOrCreate(title: noteTitle, content: content)
+            } else {
+                let tags = meta["tags"].map { $0.components(separatedBy: ",") } ?? []
+                _ = try NoteStagingEngine.stage(title: noteTitle, body: content, tags: tags)
+            }
+            return
+        }
+
+        // iCloud document path
+        if let sourcePath = action.sourcePath, target == nil, !sourcePath.isEmpty {
+            let url = URL(fileURLWithPath: sourcePath)
+            if vaultAct == "append" {
+                try iCloudDocumentManager.shared.append(content: content, to: url)
+            } else {
+                try iCloudDocumentManager.shared.write(content: content, to: url)
+            }
+            return
+        }
+
+        // Vault .md path
+        guard !vault.isEmpty, !filename.isEmpty else {
+            print("[SafetyProtocol] ⚠️ Vault action missing vault/filename metadata")
+            return
+        }
+
+        let writeMode: WriteMode = {
+            if let heading = meta["heading"] { return .insertUnderHeading(heading) }
+            switch mode {
+            case "appendToEnd":    return .appendToEnd
+            case "overwrite":      return .overwrite
+            case "createOrAppend": return .createOrAppend
+            case "create":         return .create
+            default:               return .createOrAppend
+            }
+        }()
+
+        let tags    = meta["tags"].map { $0.components(separatedBy: ",") } ?? []
+        let fm      = MarkdownFrontmatter(tags: tags)
+        let useFM   = vaultAct == "create" && !tags.isEmpty ? fm : nil
+
+        try await MainActor.run {
+            _ = try VaultWriter.shared.write(
+                filename: filename,
+                content: content,
+                to: vault,
+                mode: writeMode,
+                subpath: subpath,
+                frontmatter: useFM
+            )
+        }
+    }
+
+    // MARK: - EventKit Actions (Module B)
+
+    private func executeEventAction(_ action: ActionItem) async throws {
+        let meta   = action.metadata
+        let act    = meta["action"] ?? ""
+        let ek     = EventKitManager.shared
+
+        switch action.type {
+
+        case .createEvent:
+            switch act {
+            case "create":
+                guard let startStr = meta["startDate"],
+                      let endStr   = meta["endDate"],
+                      let title    = meta["title"],
+                      let start    = ISO8601DateFormatter().date(from: startStr),
+                      let end      = ISO8601DateFormatter().date(from: endStr) else {
+                    throw SafetyError.missingPath
+                }
+                try ek.createEvent(
+                    title: title,
+                    startDate: start,
+                    endDate: end,
+                    calendarTitle: meta["calendarTitle"],
+                    location: meta["location"],
+                    notes: meta["notes"]
+                )
+            case "update":
+                guard let id = meta["eventID"] else { throw SafetyError.missingPath }
+                let startDate = meta["newStartDate"].flatMap { ISO8601DateFormatter().date(from: $0) }
+                let endDate   = meta["newEndDate"].flatMap { ISO8601DateFormatter().date(from: $0) }
+                try ek.updateEvent(identifier: id,
+                                   newTitle: meta["newTitle"]?.isEmpty == false ? meta["newTitle"] : nil,
+                                   newStartDate: startDate,
+                                   newEndDate: endDate,
+                                   newNotes: meta["newNotes"]?.isEmpty == false ? meta["newNotes"] : nil)
+            case "delete":
+                guard let id = meta["eventID"] else { throw SafetyError.missingPath }
+                try ek.deleteEvent(identifier: id)
+            default:
+                break
+            }
+
+        case .snoozeReminder:
+            switch act {
+            case "create":
+                var dueComponents: DateComponents? = nil
+                if let dueStr = meta["dueDate"], let dueDate = ISO8601DateFormatter().date(from: dueStr) {
+                    dueComponents = EventKitManager.dateComponents(from: dueDate)
+                }
+                try ek.createReminder(
+                    title: meta["title"] ?? "",
+                    dueDateComponents: dueComponents,
+                    listTitle: meta["listTitle"],
+                    notes: meta["notes"],
+                    priority: Int(meta["priority"] ?? "0") ?? 0
+                )
+            case "complete":
+                guard let id = meta["reminderID"] else { throw SafetyError.missingPath }
+                try ek.completeReminder(identifier: id)
+            case "delete":
+                guard let id = meta["reminderID"] else { throw SafetyError.missingPath }
+                try ek.deleteReminder(identifier: id)
+            case "snoozeLowPriority":
+                let days = Int(meta["intervalDays"] ?? "1") ?? 1
+                _ = try await ek.snoozeLowPriorityReminders(
+                    in: meta["listTitle"]?.isEmpty == false ? meta["listTitle"] : nil,
+                    by: .days(days)
+                )
+            default:
+                break
+            }
+
+        default:
+            break
+        }
     }
 
     // MARK: - Audit Log
